@@ -1,5 +1,7 @@
 package design.proxy.dynamicproxy.gpproxy.proxy;
 
+import design.proxy.dynamicproxy.gpproxy.client.IPerson;
+
 import javax.tools.JavaCompiler;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
@@ -10,10 +12,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 用来生成源代码的工具类
- * Created by Tom.
- */
+
 public class GPProxy {
 
     public static final String ln = "\r\n";
@@ -55,79 +54,62 @@ public class GPProxy {
         return null;
     }
 
+    private static String generateSrc(Class<?>[] interfaces) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(GPProxy.class.getPackage() + ";").append(ln);
+        sb.append("import ").append(interfaces[0].getName()).append(";").append(ln);
+        sb.append("import java.lang.reflect.*;" + ln);
+        sb.append("public final class $proxy0 implements " + interfaces[0].getName() + " {").append(ln);
+        sb.append("DjjInvocationHandler h;").append(ln);
+        sb.append("public $proxy0(DjjInvocationHandler h){ ").append(ln);
+        sb.append("this.h = h;").append(ln);
+        sb.append("}").append(ln);
+        // 开始写方法
+        for (Method method : interfaces[0].getMethods()) {
+            Class<?>[] parameterTypes = method.getParameterTypes();
 
-    // 修改这里
-    private static String generateSrc(Class<?>[] interfaces){
-            StringBuffer sb = new StringBuffer();
-            sb.append(GPProxy.class.getPackage() + ";" + ln);
-            sb.append("import " + interfaces[0].getName() + ";" + ln);
-            sb.append("import java.lang.reflect.*;" + ln);
-            sb.append("public class $Proxy0 implements " + interfaces[0].getName() + "{" + ln);
-                sb.append("GPInvocationHandler h;" + ln);
-                sb.append("public $Proxy0(GPInvocationHandler h) { " + ln);
-                    sb.append("this.h = h;");
-                sb.append("}" + ln);
-                for (Method m : interfaces[0].getMethods()){
-                    Class<?>[] params = m.getParameterTypes();
+            StringBuffer paramTypeName = new StringBuffer();
+            StringBuffer paramTypeValue = new StringBuffer();
+            StringBuffer paramTypeClass = new StringBuffer();
 
-                    StringBuffer paramNames = new StringBuffer();
-                    StringBuffer paramValues = new StringBuffer();
-                    StringBuffer paramClasses = new StringBuffer();
-
-                    for (int i = 0; i < params.length; i++) {
-                        Class clazz = params[i];
-                        String type = clazz.getName();
-                        String paramName = toLowerFirstCase(clazz.getSimpleName());
-                        paramNames.append(type + " " +  paramName);
-                        paramValues.append(paramName);
-                        paramClasses.append(clazz.getName() + ".class");
-                        if(i > 0 && i < params.length-1){
-                            paramNames.append(",");
-                            paramClasses.append(",");
-                            paramValues.append(",");
-                        }
-                    }
-
-                    sb.append("public " + m.getReturnType().getName() + " " + m.getName() + "(" + paramNames.toString() + ") {" + ln);
-                        sb.append("try{" + ln);
-                            sb.append("Method m = " + interfaces[0].getName() + ".class.getMethod(\"" + m.getName() + "\",new Class[]{" + paramClasses.toString() + "});" + ln);
-                            sb.append((hasReturnValue(m.getReturnType()) ? "return " : "") + getCaseCode("this.h.invoke(this,m,new Object[]{" + paramValues + "})",m.getReturnType()) + ";" + ln);
-                        sb.append("}catch(Error _ex) { }");
-                        sb.append("catch(Throwable e){" + ln);
-                        sb.append("throw new UndeclaredThrowableException(e);" + ln);
-                        sb.append("}");
-                        sb.append(getReturnEmptyCode(m.getReturnType()));
-                    sb.append("}");
+            // 组装参数
+            for (int i = 0; i < parameterTypes.length; i++) {
+                Class<?> parameterType = parameterTypes[i];
+                String type = parameterType.getName();
+                String paramName = toLowerFirstCase(parameterType.getSimpleName());
+                paramTypeName.append(type + " " + paramName);
+                paramTypeValue.append(paramName);
+                paramTypeClass.append(parameterType.getName() + ".class");
+                if(i < parameterTypes.length - 1){
+                    paramTypeName.append(",");
+                    paramTypeValue.append(",");
+                    paramTypeClass.append(",");
                 }
-            sb.append("}" + ln);
-            return sb.toString();
-    }
+            }
 
-
-    private static Map<Class,Class> mappings = new HashMap<Class, Class>();
-    static {
-        mappings.put(int.class,Integer.class);
-    }
-
-    private static String getReturnEmptyCode(Class<?> returnClass){
-        if(mappings.containsKey(returnClass)){
-            return "return 0;";
-        }else if(returnClass == void.class){
-            return "";
-        }else {
-            return "return null;";
+            sb.append("public " + method.getReturnType().getName() + " " + method.getName() + "(" + paramTypeName + "){").append(ln);
+            sb.append("try{").append(ln);
+            sb.append("Method m = " + interfaces[0].getName() + ".class.getMethod(\"" + method.getName() + "\", new Class[]{" + paramTypeClass.toString() + "});").append(ln);
+            if(method.getReturnType() != void.class){
+                sb.append("return ");
+                sb.append("(" + method.getReturnType().getName() + ")");
+                sb.append("(this.h.invoke(this,m,new Object[]{" + paramTypeValue + "}));").append(ln);
+            }else{
+                sb.append("this.h.invoke(this,m,new Object[]{" + paramTypeValue + "});").append(ln);
+            }
+            sb.append("}catch(Error _ex) { }").append(ln);
+            sb.append("catch(Throwable e){" + ln);
+            sb.append("throw new UndeclaredThrowableException(e);" + ln);
+            sb.append("}").append(ln);
+            if(method.getReturnType() != void.class){
+                sb.append("return null;");
+            }
+            sb.append("}").append(ln);
         }
-    }
 
-    private static String getCaseCode(String code,Class<?> returnClass){
-        if(mappings.containsKey(returnClass)){
-            return "((" + mappings.get(returnClass).getName() +  ")" + code + ")." + returnClass.getSimpleName() + "Value()";
-        }
-        return code;
-    }
-
-    private static boolean hasReturnValue(Class<?> clazz){
-        return clazz != void.class;
+        sb.append("}").append(ln);
+        System.out.println(sb.toString());
+        return sb.toString();
     }
 
     private static String toLowerFirstCase(String src){
@@ -136,4 +118,8 @@ public class GPProxy {
         return String.valueOf(chars);
     }
 
+//    public static void main(String[] args) {
+//        generateSrc(new Class[]{IPerson.class});
+//
+//    }
 }
